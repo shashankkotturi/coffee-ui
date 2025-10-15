@@ -11,7 +11,22 @@ const CoffeeDemo = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [allToolDefs, setAllToolDefs] = useState([]);
   const messagesEndRef = useRef(null);
+
+  // Fetch all tools on mount for real token calculation
+  useEffect(() => {
+    const fetchAllTools = async () => {
+      try {
+        const response = await fetch('https://coffee-router-production.up.railway.app/all-tools');
+        const data = await response.json();
+        setAllToolDefs(data.tools || []);
+      } catch (err) {
+        console.error('Failed to fetch all tools:', err);
+      }
+    };
+    fetchAllTools();
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -21,16 +36,28 @@ const CoffeeDemo = () => {
     scrollToBottom();
   }, [messages]);
 
-  const calculateTokens = (tools) => {
-    const toolDetailsSize = 350;
-    const basicDescSize = 50;
+  const calculateTokens = (returnedTools) => {
+    const CHARS_PER_TOKEN = 4;
     
-    const withoutCoffee = tools.length * toolDetailsSize;
-    const withCoffee = tools.length * basicDescSize;
+    // WITHOUT COFFEE: Sum tokens of ALL tools in backend
+    const withoutCoffee = allToolDefs.reduce((sum, tool) => {
+      return sum + (tool.description.length / CHARS_PER_TOKEN);
+    }, 0);
+    
+    // WITH COFFEE: Sum tokens of only returned tools
+    const withCoffee = returnedTools.reduce((sum, tool) => {
+      return sum + (tool.description.length / CHARS_PER_TOKEN);
+    }, 0);
+    
     const savings = withoutCoffee - withCoffee;
-    const savingsPercent = ((savings / withoutCoffee) * 100).toFixed(1);
+    const savingsPercent = withoutCoffee > 0 ? ((savings / withoutCoffee) * 100).toFixed(1) : 0;
     
-    return { withoutCoffee, withCoffee, savings, savingsPercent };
+    return { 
+      withoutCoffee: Math.round(withoutCoffee), 
+      withCoffee: Math.round(withCoffee), 
+      savings: Math.round(savings), 
+      savingsPercent 
+    };
   };
 
   const handleSend = async () => {
