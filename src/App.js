@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader, AlertCircle, TrendingDown } from 'lucide-react';
+import { Send, Loader, AlertCircle, TrendingDown, Brain } from 'lucide-react';
 
-const CoffeeDemo = () => {
+const CoffeeAgentDemo = () => {
   const [messages, setMessages] = useState([
     {
       type: 'assistant',
-      content: "Hey there! I'm your AI agent powered by COFFEE. Ask me anything about tools you need, and I'll show you how much we save on tokens.",
+      content: "Hey! I'm your AI agent powered by COFFEE and Gemini. I'll intelligently analyze your query and find exactly the right tools you need.",
       withVisualization: false
     }
   ]);
@@ -14,11 +14,13 @@ const CoffeeDemo = () => {
   const [allToolDefs, setAllToolDefs] = useState([]);
   const messagesEndRef = useRef(null);
 
-  // Fetch all tools on mount for real token calculation
+  // Your Railway backend URL
+  const BACKEND_URL = 'https://coffee-router-production.up.railway.app';
+
   useEffect(() => {
     const fetchAllTools = async () => {
       try {
-        const response = await fetch('https://coffee-router-production.up.railway.app/all-tools');
+        const response = await fetch(`${BACKEND_URL}/all-tools`);
         const data = await response.json();
         setAllToolDefs(data.tools || []);
       } catch (err) {
@@ -39,12 +41,10 @@ const CoffeeDemo = () => {
   const calculateTokens = (returnedTools) => {
     const CHARS_PER_TOKEN = 4;
     
-    // WITHOUT COFFEE: Sum tokens of ALL tools in backend
     const withoutCoffee = allToolDefs.reduce((sum, tool) => {
       return sum + (tool.description.length / CHARS_PER_TOKEN);
     }, 0);
     
-    // WITH COFFEE: Sum tokens of only returned tools
     const withCoffee = returnedTools.reduce((sum, tool) => {
       return sum + (tool.description.length / CHARS_PER_TOKEN);
     }, 0);
@@ -69,30 +69,39 @@ const CoffeeDemo = () => {
     setLoading(true);
 
     try {
-      const response = await fetch('https://coffee-router-production.up.railway.app/route', {
+      // Call the backend agent endpoint
+      const response = await fetch(`${BACKEND_URL}/agent-route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMessage, top_k: 5 })
+        body: JSON.stringify({ query: userMessage })
       });
 
-      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Agent error: ${response.status}`);
+      }
+
       const data = await response.json();
-      const tools = data.tools || [];
       
-      if (tools.length === 0) throw new Error('No tools found');
-      const tokenMetrics = calculateTokens(tools);
+      if (!data.tools || data.tools.length === 0) {
+        throw new Error('No relevant tools found');
+      }
+
+      const tokenMetrics = calculateTokens(data.tools);
 
       setMessages(prev => [...prev, {
         type: 'assistant',
-        content: `I found ${tools.length} relevant tools for your query. Here's the efficiency breakdown:`,
+        content: data.explanation,
         withVisualization: true,
-        tools,
-        tokens: tokenMetrics
+        tools: data.tools,
+        tokens: tokenMetrics,
+        agentReasoning: data.reasoning,
+        intentSummary: data.intent_summary
       }]);
     } catch (err) {
+      console.error('Agent error:', err);
       setMessages(prev => [...prev, {
         type: 'assistant',
-        content: `Error: ${err.message}`,
+        content: `Error: ${err.message}. Please try again or rephrase your query.`,
         isError: true
       }]);
     } finally {
@@ -169,6 +178,22 @@ const CoffeeDemo = () => {
       color: '#7f1d1d',
       border: '1px solid #fca5a5',
       borderBottomLeftRadius: '0.25rem',
+    },
+    agentThinking: {
+      background: '#fef3c7',
+      border: '1px solid #fbbf24',
+      borderRadius: '0.5rem',
+      padding: '0.75rem',
+      marginTop: '1rem',
+      fontSize: '0.875rem',
+      color: '#92400e',
+    },
+    thinkingTitle: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      fontWeight: '600',
+      marginBottom: '0.5rem',
     },
     tokensSection: {
       marginTop: '1.5rem',
@@ -285,9 +310,6 @@ const CoffeeDemo = () => {
       outline: 'none',
       boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
     },
-    inputFocus: {
-      outline: '2px solid #fbbf24',
-    },
     button: {
       background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
       color: 'white',
@@ -301,10 +323,6 @@ const CoffeeDemo = () => {
       gap: '0.5rem',
       boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
       transition: 'all 0.2s',
-      disabled: {
-        opacity: 0.5,
-        cursor: 'not-allowed',
-      }
     },
     hint: {
       color: '#fcd34d',
@@ -315,18 +333,16 @@ const CoffeeDemo = () => {
 
   return (
     <div style={styles.container}>
-      {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerContent}>
           <div style={{ fontSize: '2rem' }}>☕</div>
           <div>
-            <div style={styles.headerTitle}>COFFEE Framework</div>
-            <div style={styles.headerSubtitle}>Context Offloading for Efficient Enterprise</div>
+            <div style={styles.headerTitle}>COFFEE Framework + Gemini AI</div>
+            <div style={styles.headerSubtitle}>Intelligent Context Offloading with Google Gemini</div>
           </div>
         </div>
       </div>
 
-      {/* Chat */}
       <div style={styles.chatContainer}>
         {messages.map((msg, idx) => (
           <div key={idx} style={{...styles.messageGroup, ...(msg.type === 'user' ? styles.userMessage : styles.assistantMessage)}}>
@@ -336,9 +352,21 @@ const CoffeeDemo = () => {
               </div>}
               <p style={{marginBottom: msg.withVisualization ? '1rem' : 0}}>{msg.content}</p>
 
+              {msg.intentSummary && (
+                <div style={styles.agentThinking}>
+                  <div style={styles.thinkingTitle}>
+                    <Brain size={16} />
+                    Gemini Agent Analysis
+                  </div>
+                  <div><strong>Intent:</strong> {msg.intentSummary}</div>
+                  <div style={{marginTop: '0.5rem', fontSize: '0.75rem', color: '#78350f'}}>
+                    {msg.agentReasoning}
+                  </div>
+                </div>
+              )}
+
               {msg.withVisualization && msg.tokens && (
                 <div style={styles.tokensSection}>
-                  {/* Without COFFEE */}
                   <div style={styles.tokenBar}>
                     <div style={{...styles.tokenLabel, color: '#dc2626'}}>
                       <span>Without COFFEE</span>
@@ -349,10 +377,9 @@ const CoffeeDemo = () => {
                     </div>
                   </div>
 
-                  {/* With COFFEE */}
                   <div style={styles.tokenBar}>
                     <div style={{...styles.tokenLabel, color: '#16a34a'}}>
-                      <span>With COFFEE</span>
+                      <span>With COFFEE + Gemini</span>
                       <span>{msg.tokens.withCoffee} tokens</span>
                     </div>
                     <div style={styles.barContainer}>
@@ -360,7 +387,6 @@ const CoffeeDemo = () => {
                     </div>
                   </div>
 
-                  {/* Savings Badge */}
                   <div style={styles.savingsBadge}>
                     <div style={styles.savingsIcon}>
                       <TrendingDown size={24} />
@@ -369,14 +395,13 @@ const CoffeeDemo = () => {
                       <div style={{fontSize: '0.875rem', color: '#4b5563'}}>Token Savings</div>
                       <div style={styles.savingsText}>{msg.tokens.savingsPercent}%</div>
                       <div style={{fontSize: '0.875rem', color: '#047857', marginTop: '0.5rem'}}>
-                        <strong>{msg.tokens.savings} fewer tokens</strong> required
+                        <strong>{msg.tokens.savings} fewer tokens</strong> with intelligent routing
                       </div>
                     </div>
                   </div>
 
-                  {/* Tools */}
                   <div style={styles.toolsList}>
-                    <div style={styles.toolsTitle}>Top Tools Found</div>
+                    <div style={styles.toolsTitle}>Selected Tools (Gemini-Filtered)</div>
                     {msg.tools.map(tool => (
                       <div key={tool.id} style={styles.toolItem}>
                         <span style={styles.toolName}>{tool.name}</span>
@@ -401,7 +426,7 @@ const CoffeeDemo = () => {
           <div style={{...styles.messageGroup, ...styles.assistantMessage}}>
             <div style={{...styles.messageBubble, ...styles.loadingBubble}}>
               <Loader size={16} style={{animation: 'spin 1s linear infinite'}} />
-              <span>Processing your query with COFFEE...</span>
+              <span>Gemini is analyzing your request...</span>
             </div>
           </div>
         )}
@@ -409,7 +434,6 @@ const CoffeeDemo = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div style={styles.inputArea}>
         <div style={styles.inputWrapper}>
           <div style={styles.inputGroup}>
@@ -418,19 +442,19 @@ const CoffeeDemo = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask me about the tools you need..."
+              placeholder="Ask me anything - Gemini will intelligently find the right tools..."
               style={styles.input}
               disabled={loading}
             />
             <button
               onClick={handleSend}
               disabled={loading || !input.trim()}
-              style={{...styles.button, ...(loading || !input.trim() ? styles.button.disabled : {})}}
+              style={{...styles.button, opacity: (loading || !input.trim()) ? 0.5 : 1, cursor: (loading || !input.trim()) ? 'not-allowed' : 'pointer'}}
             >
               <Send size={16} />
             </button>
           </div>
-          <div style={styles.hint}>Try asking: "I need to search for code repositories"</div>
+          <div style={styles.hint}>Try: "I need to analyze customer feedback from Slack and search for related GitHub issues"</div>
         </div>
       </div>
 
@@ -444,4 +468,4 @@ const CoffeeDemo = () => {
   );
 };
 
-export default CoffeeDemo;
+export default CoffeeAgentDemo;
